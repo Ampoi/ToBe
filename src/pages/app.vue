@@ -1,76 +1,171 @@
 <template>
   <v-app>
-    <v-app-bar
-      color="transparent"
-      collapse
-      flat
-    >
-      <v-app-bar-nav-icon></v-app-bar-nav-icon>
+    <v-app-bar color="transparent" flat>
+      <template v-slot:prepend class="relative">
+        <v-app-bar-nav-icon @click.stop="showNavbar = !showNavbar"/>
+        <div v-if="!updated" class="w-3 h-3 bg-slate-900 border-2 border-solid border-slate-200 absolute rounded-full top-[11px] right-[8px]"/>
+      </template><!--メニューボタン-->
+      <v-dialog
+        v-model="showDialog"
+      >        
+        <template v-slot:activator="attrs">
+          <v-btn
+            icon="mdi-plus"
+            v-bind="attrs"
+            @click="showDialog = true"/>
+        </template>
+        <v-card class="max-w-md rounded-2xl" fluid>
+          <nSDialog
+            @newKadai="addKadai"
+          ></nSDialog>
+        </v-card>
+      </v-dialog>
     </v-app-bar>
 
-    <v-main class="bg-slate-200 overflow-auto grid">
-      <div class="m-auto flex flex-col items-center pb-20"><!--全体-->
-        <!--きの部分-->
-        <div class="flex flex-row gap-4 items-end">
-          <!--枝-->
-          <div v-for="branch in trees" :key="branch.key" class="flex flex-col items-center">
-            <addTaskButton @addTask="addTask(branch.cards)"/><!--旗と課題を追加するボタン-->
-            <card v-for="card in branch.cards" :key="card.key" :card="card"/><!--カード-->
-          </div>
-        </div>
-        <div class="flex flex-row">
-          <div
-            v-for="i of trees.length - 1" :key="i"
-            class="
-              h-4 w-[252px] box-content border-x-2 border-b-4 border-orange-400
-              first:border-l-4 first:rounded-bl-md
-              last:border-r-4 last:rounded-br-md
-            "/>
-        </div>
-        <rootCircle/>
-      </div>
+    <v-banner
+      lines="one"
+      icon="mdi-information-outline"
+      class="fixed m-2 mt-12 w-[calc(100vw-1rem)] rounded-lg z-50 bg-green-300/70 backdrop-blur-md"
+      v-if="showBanner"
+    >
+      <p>変更を保存しました<br>以降はこのタブを閉じることができます</p>
+
+      <template v-slot:actions>
+        <v-btn @click="this.showBanner = false">閉じる</v-btn>
+      </template>
+    </v-banner>
+
+    <v-navigation-drawer
+      v-model="showNavbar"
+      temporary
+      class="m-4 h-auto rounded-lg bg-white/70 backdrop-blur-md"
+    >
+      <navBar
+        :userImage="userImage"
+        :userName="userName"
+        :updated="updated"
+        @logout="logout"
+        @save="saveWithBanner"/>
+    </v-navigation-drawer>
+
+    <v-main class="bg-slate-200 overflow-auto">
+      <TaskCard
+        v-for="card in cards"
+        :key="card.id"
+        :card = "card"
+        @updateData="(newData)=>{card = newData}"
+      />
     </v-main>
-    <addBranchButton
-      class="fixed bottom-0 w-screen"
-      @clicked="addBranch"
-    />
   </v-app>
 </template>
-
 <script>
-import addBranchButton from '../components/addBranchButton.vue';
-import rootCircle from '../components/rootCircle.vue'
-import card from '../components/card.vue'
-import addTaskButton from '../components/addTaskButton.vue';
+import navBar from "../components/navBar.vue";
+import TaskCard from "../components/taskCard.vue"
+import nSDialog from "../components/newStaskDialog.vue"
+
+import { initializeApp, getApps } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+
+import { getAuth, onAuthStateChanged, signOut } from "firebase/auth";
+import { getDatabase, ref, get, set, child } from "firebase/database";
+
+import { firebaseConfig } from "../data/firebaseConfig.js"
+
+const firebaseApp = initializeApp(firebaseConfig);
+const analytics = getAnalytics(firebaseApp);
+
+const auth = getAuth(firebaseApp);
+
+const db = getDatabase()
+const dbRef = ref(db);
+
+var timer = setTimeout(()=>{}, 0)
 
 export default{
   components: {
-    addBranchButton,
-    rootCircle,
-    card,
-    addTaskButton
+    navBar,
+    TaskCard,
+    nSDialog
   },
   data(){return{
-    cannotScroll: true,
-    trees:[
-      {
-        cards:[]
-      }
-    ]
+    showNavbar: false,
+    showBanner: false,
+    showDialog: false,
+
+    updated: true,
+    changed: true,
+    firstUpdate: true,
+    SecoundsForChange: 5,
+    
+    logined: false,
+    
+    uid: "",
+    userName: "",
+    userImage: "",
+
+    cards: []
   }},
+
   methods:{
-    addTask(branch){
-      branch.unshift({
-        title: "",
-        done: false
+    logout(){
+      console.log("try logout");
+      signOut(auth).then(() => {
+        console.log("logout success!");
+      }).catch((error) => {
+        console.log(error);
+      });
+    },
+    saveWithBanner(){
+      set(ref(db, `data/${this.uid}/trees`), this.trees).then(()=>{
+        this.updated = true
+        this.showBanner = true
       })
     },
-    addBranch(){
-      this.trees.push({
-        cards:[
-        ]
-      })
+    addKadai(data){
+      this.cards.push(data)
+      this.showDialog = false
     }
+  },
+
+  watch:{
+    trees: {
+      deep: true,
+      handler(){
+        if(this.firstUpdate == true){
+          this.firstUpdate = false
+        }else{
+          clearTimeout(timer)
+          this.updated = false
+          this.showBanner = false
+          timer = setTimeout(function(){
+            set(ref(db, `data/${this.uid}/trees`), this.trees);
+            this.updated = true
+          }.bind(this), 8000)
+        }
+      }
+    }
+  },
+
+  mounted(){
+    window.addEventListener('beforeunload', (event) => {
+      if(this.updated == false){
+        this.saveWithBanner()
+        console.log("apapa");
+        event.preventDefault()
+        event.returnValue = ""
+      }
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        this.uid = user.uid;
+        this.userName = user.displayName
+        this.userImage = user.photoURL
+        this.logined = true
+      } else {
+        this.$router.push("/welcome")
+      }
+    });
   }
 }
 </script>
