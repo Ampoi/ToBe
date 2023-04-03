@@ -250,7 +250,6 @@ export default{
           if (snapshot.exists()) {
             const newData = snapshot.val()
             this.trees = newData.trees
-            console.log(this.trees);
           } else {
             console.log("No data available");
             set(ref(db, `data/${this.uid}`), {
